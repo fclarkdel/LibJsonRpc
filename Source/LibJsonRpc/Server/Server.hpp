@@ -38,18 +38,18 @@ public:
 	///		A future that will be fulfilled once the server processes the batch request.
 	///		The future will contain the JSON response object from the server.
 	std::future<std::string>
-	batch_request(std::string method);
+	batch_request(std::string method, std::function<std::string(std::string)> write_callback = std::nullptr_t());
 
 	std::future<std::string>
-	batch_request(std::string method, std::string params);
-	///@}
+	batch_request(std::string method, std::string params, std::function<std::string(std::string)> write_callback = std::nullptr_t());
 
+	///@}
 	/// @brief
 	///		Sends the current batch object to the server,
 	///		and fulfills the promises associated with the requests
 	/// 	in the batch by 'id'.
 	void
-	execute_batch();
+	send_batch();
 
 private:
 	static inline std::mutex global_lock;
@@ -61,7 +61,12 @@ private:
 
 	std::vector<Request> batch;
 
-	static size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userdata);
+	std::vector<std::promise<std::string>> promises;
+
+	std::vector<std::function<std::string(std::string)>> write_callbacks;
+
+	static size_t
+	curl_write_callback(char* ptr, size_t size, size_t nmemb, void* userdata);
 };
 }
 #endif

@@ -31,8 +31,8 @@ target_link_libraries(
     LibJsonRpc_Source
 
     PUBLIC
-    libcurl
     daw::daw-json-link
+    libcurl
 )
 if(PROJECT_IS_TOP_LEVEL)
     add_executable(

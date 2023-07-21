@@ -11,11 +11,10 @@ namespace LibJsonRpc
 {
 struct Request
 {
-	std::string jsonrpc;
+	const std::string jsonrpc;
 	std::string method;
 	std::optional<std::string> params;
-	std::optional<size_t> id;
-	std::promise<std::string> promise;
+	std::variant<std::string, long, double> id;
 };
 }
 template<>
@@ -25,8 +24,11 @@ struct daw::json::json_data_contract<LibJsonRpc::Request>
 		json_string<"jsonrpc">,
 		json_string<"method">,
 		json_raw_null<"params", std::optional<std::string>>,
-		json_number_null<"id", std::optional<size_t>>>;
-	
+		json_variant<
+			"id",
+			std::variant<std::string, long, double>,
+			json_variant_type_list<std::string, long, double>>>;
+
 	static inline auto
 	to_json_data(const LibJsonRpc::Request& value)
 	{

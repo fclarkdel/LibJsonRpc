@@ -41,29 +41,33 @@ Server::set_url(std::string url)
 	this->url = std::move(url);
 }
 std::future<std::string>
-Server::batch_request(std::string method)
+Server::batch_request(std::string method, std::function<std::string(std::string)> write_callback)
 {
 	auto scoped_lock = std::scoped_lock(local_lock);
 
-	size_t index = batch.size();
+	int index = batch.size();
 
 	batch.emplace_back("2.0", std::move(method), std::nullopt, index);
+	write_callbacks.emplace_back(write_callback);
+	promises.emplace_back();
 
-	return batch[index].promise.get_future();
+	return promises[index].get_future();
 }
 std::future<std::string>
-Server::batch_request(std::string method, std::string params)
+Server::batch_request(std::string method, std::string params, std::function<std::string(std::string)> write_callback)
 {
 	auto scoped_lock = std::scoped_lock(local_lock);
 
-	size_t index = batch.size();
+	int index = batch.size();
 
 	batch.emplace_back("2.0", std::move(method), std::move(params), index);
+	write_callbacks.emplace_back(write_callback);
+	promises.emplace_back();
 
-	return batch[index].promise.get_future();
+	return promises[index].get_future();
 }
 void
-Server::execute_batch()
+Server::send_batch()
 {
 	auto scoped_lock = std::scoped_lock(local_lock);
 
@@ -76,33 +80,39 @@ Server::execute_batch()
 
 	curl_easy_setopt(session, CURLOPT_URL, url.c_str());
 	curl_easy_setopt(session, CURLOPT_COPYPOSTFIELDS, batch_json.c_str());
-	curl_easy_setopt(session, CURLOPT_WRITEFUNCTION, &Server::write_callback);
 
 	std::string batch_response;
 	curl_easy_setopt(session, CURLOPT_WRITEDATA, &batch_response);
+	curl_easy_setopt(session, CURLOPT_WRITEFUNCTION, &Server::curl_write_callback);
 
 	CURLcode session_result = curl_easy_perform(session);
-
 	if(session_result != CURLE_OK)
 		throw std::runtime_error(curl_easy_strerror(session_result));
 
 	auto json_iterator = daw::json::json_array_iterator<daw::json::json_value>(batch_response);
 	while(json_iterator.good() && json_iterator->find_member("id"))
 	{
-		auto request = *json_iterator;
+		auto json_response = *json_iterator;
 
 		size_t index = daw::json::from_json<size_t>(json_iterator->find_member("id"));
 
-		batch[index].promise.set_value(std::move(daw::json::to_json(request)));
+		auto response = daw::json::to_json(json_response);
+
+		if(write_callbacks[index])
+			response = write_callbacks[index](response);
+
+		promises[index].set_value(std::move(response));
 
 		json_iterator++;
 	}
 	batch.clear();
+	write_callbacks.clear();
+	promises.clear();
 
 	curl_easy_cleanup(session);
 }
 size_t
-Server::write_callback(char* ptr, size_t size, size_t nmemb, void* userdata)
+Server::curl_write_callback(char* ptr, size_t size, size_t nmemb, void* userdata)
 {
 	size_t total_size = size * nmemb;
 
